@@ -1,0 +1,19 @@
+{
+  "name": "EdgeLink Mobile",
+  "short_name": "EdgeLink",
+  "description": "EdgeLink IoT mobile PWA",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F9FAFB",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
