@@ -66,15 +66,15 @@ export function createOAuthState() {
 }
 
 export function saveOAuthState(state: string) {
-  window.sessionStorage.setItem(STATE_STORAGE_KEY, state)
+  window.localStorage.setItem(STATE_STORAGE_KEY, state)
 }
 
 export function getSavedOAuthState() {
-  return window.sessionStorage.getItem(STATE_STORAGE_KEY) || ''
+  return window.localStorage.getItem(STATE_STORAGE_KEY) || ''
 }
 
 export function clearOAuthState() {
-  window.sessionStorage.removeItem(STATE_STORAGE_KEY)
+  window.localStorage.removeItem(STATE_STORAGE_KEY)
 }
 
 export function getStoredToken() {

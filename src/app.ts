@@ -146,10 +146,6 @@ function normalizeStatus(status?: string) {
   return 'unknown'
 }
 
-function getAddress(device: Device) {
-  return device.address?.uplink?.[0]?.address || device.description || '—'
-}
-
 function typeLabel(type: number) {
   if (type === 2) return 'func'
   if (type === 3) return 'event'
@@ -180,7 +176,6 @@ function getDevicePageSize() {
 function renderShell() {
   app.innerHTML = `
     <div class="app">
-      <div class="status-bar"><span>${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span><span style="letter-spacing:-1px">●●●● ○</span></div>
       <div class="view active" id="viewList"></div>
       <div class="view" id="viewDetail"></div>
       <nav class="bottom-tabs" id="bottomTabs">
@@ -283,7 +278,13 @@ async function handleOAuthCallback() {
   const code = params.get('code') || ''
   const stateParam = params.get('state') || ''
   const savedState = getSavedOAuthState()
+  const storedToken = getStoredToken()
   try {
+    if (storedToken && (!stateParam || !savedState)) {
+      window.history.replaceState(null, '', '/')
+      startApp()
+      return
+    }
     if (!code) throw new Error('OAuth2 回调缺少 code')
     if (!stateParam || !savedState || stateParam !== savedState) throw new Error('OAuth2 state 校验失败，请重新登录')
     const token = await exchangeOAuthCode(code)
@@ -294,7 +295,7 @@ async function handleOAuthCallback() {
     window.history.replaceState(null, '', '/')
     startApp()
   } catch (err) {
-    clearAuth()
+    if (!storedToken) clearAuth()
     clearOAuthState()
     renderLogin(err instanceof Error ? err.message : '登录失败')
   }
@@ -314,13 +315,7 @@ function renderList() {
   const total = state.total || state.devices.length
   const online = state.devices.filter(d => normalizeStatus(d.status) === 'online').length
   const offline = state.devices.filter(d => normalizeStatus(d.status) === 'offline').length
-  const filtered = state.devices.filter(device => {
-    const status = normalizeStatus(device.status)
-    if (state.filter !== 'all' && status !== state.filter) return false
-    const q = state.search.trim().toLowerCase()
-    if (!q) return true
-    return `${device.device_name} ${device.device_key} ${device.product_name || ''}`.toLowerCase().includes(q)
-  })
+  const filtered = getFilteredDevices()
 
   const list = document.querySelector<HTMLDivElement>('#viewList')!
   list.innerHTML = `
@@ -339,16 +334,14 @@ function renderList() {
       <button class="list-refresh-btn" id="listRefreshBtn" aria-label="刷新设备列表">${icons.refresh}</button>
     </div>
     ${state.loading ? '<div class="loading">正在加载设备...</div>' : ''}
-    ${!state.loading && filtered.length === 0 ? '<div class="empty">暂无设备数据</div>' : ''}
-    <div class="device-grid">
-      ${filtered.map(renderDeviceCard).join('')}
+    <div id="deviceListBody">
+      ${renderDeviceListBody(filtered)}
     </div>
-    ${renderLoadMore(filtered.length)}
   `
 
   list.querySelector<HTMLInputElement>('#searchInput')?.addEventListener('input', event => {
     state.search = (event.target as HTMLInputElement).value
-    renderList()
+    renderDeviceListBodyIntoDom()
   })
   list.querySelector<HTMLButtonElement>('#searchBtn')?.addEventListener('click', loadDevices)
   list.querySelector<HTMLButtonElement>('#listRefreshBtn')?.addEventListener('click', loadDevices)
@@ -360,6 +353,36 @@ function renderList() {
     })
   })
   list.querySelectorAll<HTMLElement>('.device-card').forEach(card => {
+    card.addEventListener('click', () => showDetail(Number(card.dataset.id)))
+  })
+}
+
+function getFilteredDevices() {
+  return state.devices.filter(device => {
+    const status = normalizeStatus(device.status)
+    if (state.filter !== 'all' && status !== state.filter) return false
+    const q = state.search.trim().toLowerCase()
+    if (!q) return true
+    return `${device.device_name} ${device.device_key} ${device.product_name || ''}`.toLowerCase().includes(q)
+  })
+}
+
+function renderDeviceListBody(filtered = getFilteredDevices()) {
+  return `
+    ${!state.loading && filtered.length === 0 ? '<div class="empty">暂无设备数据</div>' : ''}
+    <div class="device-grid">
+      ${filtered.map(renderDeviceCard).join('')}
+    </div>
+    ${renderLoadMore(filtered.length)}
+  `
+}
+
+function renderDeviceListBodyIntoDom() {
+  const body = document.querySelector<HTMLDivElement>('#deviceListBody')
+  if (!body) return
+  body.innerHTML = renderDeviceListBody()
+  body.querySelector<HTMLButtonElement>('#loadMoreBtn')?.addEventListener('click', loadMoreDevices)
+  body.querySelectorAll<HTMLElement>('.device-card').forEach(card => {
     card.addEventListener('click', () => showDetail(Number(card.dataset.id)))
   })
 }
@@ -577,10 +600,9 @@ function renderDetail() {
       <span id="detailStatus" class="tag ${status}">${status}</span>
     </div>
     <div class="info-banner">
-      <span class="bitem">${icons.box}product: <strong>${escapeHtml(device.product_name || '—')}</strong></span>
-      <span class="bitem">${icons.screen}protocol: <strong>MQTT</strong></span>
-      <span class="bitem">${icons.clock}最后上报: <strong id="detailLastTime">${formatFullDateTime(device.status_updated_time)}</strong></span>
-      <span class="bitem">${icons.pin}address: <strong>${escapeHtml(getAddress(device))}</strong></span>
+      <span class="bitem info-protocol">${icons.screen}<strong>MQTT</strong></span>
+      <span class="bitem info-product">${icons.box}<strong>${escapeHtml(device.product_name || '—')}</strong></span>
+      <span class="bitem info-time">${icons.clock}<strong id="detailLastTime">${formatFullDateTime(device.status_updated_time)}</strong></span>
     </div>
     <div class="time-query-bar">
       <div class="tq-row">
@@ -791,9 +813,9 @@ async function mountHistoryChart(data: TimeSeriesData, device: DeviceDetail) {
       showSymbol: false,
       symbol: 'circle',
       symbolSize: 7,
-      lineStyle: { width: 3, color: colors[index % colors.length] },
+      lineStyle: { width: 1.5, color: colors[index % colors.length] },
       itemStyle: { color: colors[index % colors.length] },
-      emphasis: { focus: 'series', lineStyle: { width: 5 } },
+      emphasis: { focus: 'series', lineStyle: { width: 2 } },
       data: [...points].sort((a, b) => a[0] - b[0]).map(([ts, value]) => [ts * 1000, value]),
     }))
 
